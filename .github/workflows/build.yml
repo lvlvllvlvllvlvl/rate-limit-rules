@@ -1,0 +1,22 @@
+name: build and test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["develop"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v3
+      - name: install node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20
+      - name: npm install
+        run: npm i
+      - name: test
+        run: npm test
