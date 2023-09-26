@@ -15,7 +15,7 @@ jobs:
       - name: install node
         uses: actions/setup-node@v3
         with:
-          node-version: 20
+          node-version: '*'
       - name: npm install
         run: npm i
       - name: test
