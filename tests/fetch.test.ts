@@ -1,4 +1,4 @@
-import { FetchRateLimiter } from "../src/fetch";
+import { FetchRateLimiter } from "../src/rate-limiters/fetch";
 
 describe("fetch wrapper", () => {
   it("make request immediately if there is no header function", async () => {

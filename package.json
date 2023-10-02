@@ -4,6 +4,7 @@
   "description": "Request rate limiter following Grinding Gear Games X-Rate-Limit-Rules specification",
   "main": "index.js",
   "scripts": {
+    "build": "tsc",
     "test": "jest"
   },
   "repository": {
