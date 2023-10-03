@@ -6,7 +6,7 @@ type Result = ReturnType<Fetch>;
 
 export class FetchRateLimiter extends RateLimiter<Args, Result> {
   constructor(conf?: Partial<RateLimiterConfig>) {
-    super(fetch, fetchPath, fetchExtractor, fetchHeader, conf);
+    super(fetch, fetchExtractor, fetchHeader, conf);
   }
 }
 
@@ -33,15 +33,8 @@ export function fetchHeader(fn: typeof fetch, ...[req, init = {}]: Parameters<ty
   return fn(req, { ...init, method: "HEAD", body: undefined });
 }
 
-export function fetchPath(...[req]: Parameters<typeof fetch>) {
-  if (typeof req !== "string" && "url" in req) {
-    return new URL(req.url).pathname;
-  } else {
-    return new URL(req).pathname;
-  }
-}
-
-export function fetchExtractor({ headers }: Response): Policy {
+export async function fetchExtractor(response: Promise<Response>): Promise<Policy> {
+  const { headers } = await response;
   const retry = headers.get("Retry-After");
   const rules =
     headers
