@@ -40,8 +40,8 @@ export interface Policy {
 
 type InternalState<T extends any[], R> = {
   timeoutID?: any;
-  timestamps: { time: number }[];
-  active: Promise<Policy>[];
+  timestamps: { started: number; ended: number }[];
+  active: { started: number; request: Promise<Policy> }[];
   queue: {
     args: T;
     resolve: (value: Awaited<R>) => void;
@@ -49,7 +49,7 @@ type InternalState<T extends any[], R> = {
   }[];
 };
 
-export async function sleep(seconds?: number) {
+export async function sleep(seconds?: number): Promise<void> {
   if (seconds) {
     return new Promise((resolve) => setTimeout(resolve, seconds * 1000));
   } else {
@@ -66,9 +66,20 @@ export interface RateLimiterConfig {
    */
   waitOnStateMs: number;
   /**
+   * if defined, if a policy would cause a known wait longer than this value,
+   * an exception will be thrown instead
+   */
+  maxWaitMs?: number;
+  /**
+   * Minimum time between active requests
+   *
+   * Default: 100
+   */
+  requestDelayMs: number;
+  /**
    * maximum number of active requests per policy
    *
-   * Default: unlimited
+   * Default: 0 (unlimited)
    */
   maxActive: number;
   /**
@@ -95,6 +106,7 @@ export class RateLimiter<T extends any[], R> {
   });
   private conf: RateLimiterConfig = {
     waitOnStateMs: 1000,
+    requestDelayMs: 100,
     maxActive: 0,
     logging: {
       error: console.error,
@@ -146,6 +158,12 @@ export class RateLimiter<T extends any[], R> {
           });
           break;
         } else if (wait && wait > 0) {
+          if (this.conf.maxWaitMs != undefined && this.conf.maxWaitMs < wait) {
+            for (const queued of state.queue) {
+              queued.reject(wait + "ms wait");
+            }
+            state.queue = [];
+          }
           state.timeoutID = setTimeout(() => {
             state.timeoutID = null;
             if (state.queue.length) {
@@ -173,17 +191,18 @@ export class RateLimiter<T extends any[], R> {
 
     if (next) {
       const { args, resolve, reject } = next;
-      const thisPromise = Promise.resolve(this.makeRequest(...args))
+      const started = performance.now();
+      const request = Promise.resolve(this.makeRequest(...args))
         .then((result: any) => {
-          state.active = state.active.filter((v) => v !== thisPromise);
-          state.timestamps.push({ time: performance.now() });
+          state.active = state.active.filter((v) => v.request !== request);
+          state.timestamps.push({ started, ended: performance.now() });
           this.conf.logging.debug?.(policy.name, "request complete with args:", ...args);
           resolve(result);
           return Promise.resolve(this.policyExtractor(result));
         })
         .catch((reason) => {
-          state.active = state.active.filter((v) => v !== thisPromise);
-          state.timestamps.push({ time: performance.now() });
+          state.active = state.active.filter((v) => v.request !== request);
+          state.timestamps.push({ started, ended: performance.now() });
           this.followPolicy(policy);
           this.conf.logging.debug?.(policy.name, "request failed", reason);
           reject(reason);
@@ -191,7 +210,7 @@ export class RateLimiter<T extends any[], R> {
         });
 
       this.conf.logging.debug?.(policy.name, "queued request with args:", ...args);
-      state.active.push(thisPromise);
+      state.active.push({ request, started });
     } else {
       this.conf.logging.debug?.("No requests in queue");
     }
@@ -199,15 +218,21 @@ export class RateLimiter<T extends any[], R> {
 
   private checkLimits = (policy: Policy) => {
     let waitUntil = 0;
+    const state = this.state[policy.name];
     for (const [rule, limits] of Object.entries(policy.limits)) {
-      const states = policy.state[rule] || [];
+      const ruleStates = policy.state[rule] || [];
       for (let i = 0; i < limits.length; i++) {
-        const nextWait = this.checkLimit(this.state[policy.name], limits[i], states[i]);
+        const nextWait = this.checkLimit(state, limits[i], ruleStates[i]);
         if (nextWait instanceof Promise) {
           return nextWait;
         }
         waitUntil = Math.max(waitUntil, nextWait);
       }
+    }
+    const lastReq = state.active[state.active.length - 1];
+    if (lastReq && waitUntil < lastReq.started + this.conf.requestDelayMs) {
+      const wait = lastReq.started + this.conf.requestDelayMs - performance.now();
+      return Promise.race([lastReq.request, sleep(wait / 1000)]);
     }
     const wait = waitUntil - performance.now();
     return wait > 0 ? wait : undefined;
@@ -215,15 +240,15 @@ export class RateLimiter<T extends any[], R> {
 
   private checkLimit = ({ timestamps, active }: InternalState<T, R>, limit: Limit, state?: State) => {
     if ((this.conf.maxActive > 0 && active.length >= this.conf.maxActive) || active.length >= limit.count) {
-      return Promise.race(active);
+      return Promise.race(active.map((a) => a.request));
     }
     let waitUntil = 0;
     const max = limit.count - active.length;
     if (timestamps.length >= max) {
       const start = performance.now() - limit.seconds * 1000;
-      const idx = timestamps.findIndex((t) => t.time > start);
+      const idx = timestamps.findIndex((t) => t.ended > start);
       if (idx >= 0 && timestamps.length - idx >= limit.count) {
-        waitUntil = timestamps[idx].time + limit.seconds * 1000;
+        waitUntil = timestamps[idx].ended + limit.seconds * 1000;
       }
     }
     if (state && state.timestamp + state.seconds * 1000 > performance.now()) {
