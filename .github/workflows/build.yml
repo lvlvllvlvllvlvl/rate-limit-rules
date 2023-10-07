@@ -17,4 +17,5 @@ jobs:
         with:
           node-version: "lts/*"
       - run: npm ci
+      - run: npm build
       - run: npm test

@@ -13,9 +13,13 @@ jobs:
         with:
           node-version: "lts/*"
           registry-url: "https://registry.npmjs.org"
-      - run: npm version from-git
-      - run: npm ci
-      - run: npm build
-      - run: npm publish
+      - run: |
+          git config user.name "GitHub Release Action"
+          git config user.email "119665497+lvlvllvlvllvlvl@users.noreply.github.com"
+          npm version from-git
+          npm ci
+          npm build
+          npm publish
+          git push origin ${{ github.ref_name }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
