@@ -1,3 +1,5 @@
+import { sleep } from "./helpers";
+
 type Map<V> = { [key: string]: V | undefined };
 
 export interface Limit {
@@ -49,14 +51,6 @@ type InternalState<T extends any[], R> = {
   }[];
 };
 
-export async function sleep(seconds?: number): Promise<void> {
-  if (seconds) {
-    return new Promise((resolve) => setTimeout(resolve, seconds * 1000));
-  } else {
-    return new Promise(setImmediate);
-  }
-}
-
 export interface RateLimiterConfig {
   /**
    * when the hit count of any state value equals the maximum hit count of the corresponding limit,
@@ -97,14 +91,14 @@ export interface RateLimiterConfig {
   defaultLimits: Limit[];
 }
 
-export class RateLimiter<T extends any[], R> {
+export abstract class AbstractRateLimiter<T extends any[], R> {
   private state = new Proxy({} as { [policy: string]: InternalState<T, R> }, {
     get: (target, name): InternalState<T, R> => {
       const val = target[String(name)];
       return val || (target[String(name)] = { timestamps: [], active: [], queue: [] });
     },
   });
-  private conf: RateLimiterConfig = {
+  protected conf: RateLimiterConfig = {
     waitOnStateMs: 1000,
     requestDelayMs: 100,
     maxActive: 0,
@@ -115,14 +109,13 @@ export class RateLimiter<T extends any[], R> {
   };
   private thread = Promise.resolve(null as any);
 
-  constructor(
-    private makeRequest: (...args: T) => R,
-    private policyExtractor: (result: R) => Policy | Promise<Policy>,
-    private head: (fn: (...args: T) => R, ...args: T) => R | Promise<R>,
-    conf?: Partial<RateLimiterConfig>
-  ) {
+  constructor(conf?: Partial<RateLimiterConfig>) {
     conf && Object.assign(this.conf, conf);
   }
+
+  protected abstract makeRequest: (...args: T) => R;
+  protected abstract policyExtractor: (result: Awaited<R>) => Policy | Promise<Policy>;
+  protected abstract head: (fn: (...args: T) => R, ...args: T) => R | Promise<R>;
 
   public request = async (...args: T): Promise<Awaited<R>> => {
     const policy = await this.policyExtractor(

@@ -1,10 +1,12 @@
-import { FetchRateLimiter } from "../src/rate-limiters/fetch";
+import { AxiosRateLimiter } from "../src/rate-limiters/axios-adapter";
+import axios from "axios";
 
-describe("fetch wrapper", () => {
+describe("axios adapter", () => {
   it("fetches data from the api", async () => {
-    const { request: fetch } = new FetchRateLimiter();
+    const { request: adapter } = new AxiosRateLimiter();
+    const api = axios.create({ adapter: (conf) => adapter(conf) });
 
-    const result = await fetch(
+    const result = await api(
       "https://www.pathofexile.com/character-window/get-passive-skills?accountName=lV_lS&realm=pc&character=sanplum",
       {
         headers: {
@@ -13,6 +15,6 @@ describe("fetch wrapper", () => {
       }
     );
 
-    expect(await result.json()).toHaveProperty("hashes");
+    expect(result.data).toHaveProperty("hashes");
   });
 });

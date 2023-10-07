@@ -1,57 +1,19 @@
-import { Limit, Limits, Policy, RateLimiter, RateLimiterConfig, State, States } from "..";
+import { AbstractRateLimiter, RateLimiterConfig } from "../index";
+import { getPolicy } from "../helpers";
 
 type Fetch = typeof fetch;
 type Args = Parameters<Fetch>;
 type Result = ReturnType<Fetch>;
 
-export class FetchRateLimiter extends RateLimiter<Args, Result> {
+export class FetchRateLimiter extends AbstractRateLimiter<Args, Result> {
   constructor(conf?: Partial<RateLimiterConfig>) {
-    super(fetch, fetchExtractor, fetchHeader, conf);
-  }
-}
-
-export function getLimits(text?: string | null): Limit[] {
-  return (
-    text?.split(",").map((rule) => {
-      const [count, seconds, retry] = rule.split(":").map((n) => parseInt(n));
-      return { count, seconds, retry };
-    }) || []
-  );
-}
-
-export function getState(text?: string | null): State[] {
-  const timestamp = performance.now();
-  return (
-    text?.split(",").map((rule) => {
-      const [count, seconds, retry] = rule.split(":").map((n) => parseInt(n));
-      return { count, seconds, retry, timestamp };
-    }) || []
-  );
-}
-
-export function fetchHeader(fn: typeof fetch, ...[req, init = {}]: Parameters<typeof fetch>) {
-  return fn(req, { ...init, method: "HEAD", body: undefined });
-}
-
-export async function fetchExtractor(response: Promise<Response>): Promise<Policy> {
-  const { headers } = await response;
-  const retry = headers.get("Retry-After");
-  const rules =
-    headers
-      .get("X-Rate-Limit-Rules")
-      ?.split(",")
-      ?.map((s) => s.trim()) || [];
-  const limits: Limits = {};
-  const state: States = {};
-  for (const rule of rules) {
-    limits[rule] = getLimits(headers.get(`X-Rate-Limit-${rule}`));
-    state[rule] = getState(headers.get(`X-Rate-Limit-${rule}-State`));
+    super(conf);
   }
 
-  return {
-    name: headers.get("X-Rate-Limit-Policy") || "",
-    limits,
-    state,
-    retryAfter: (retry && parseInt(retry)) || 0,
-  };
+  protected makeRequest = fetch;
+
+  protected head = (fn: typeof fetch, ...[req, init = {}]: Parameters<typeof fetch>) =>
+    fn(req, { ...init, method: "HEAD", body: undefined });
+
+  protected policyExtractor = ({ headers }: Response) => getPolicy(headers.get.bind(headers));
 }

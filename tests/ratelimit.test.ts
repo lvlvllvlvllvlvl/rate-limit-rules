@@ -1,4 +1,5 @@
-import { RateLimiter, sleep } from "../src";
+import { sleep } from "../src/helpers";
+import { RateLimiter } from "../src/rate-limiters/custom";
 import "./promises";
 import { mockPromise } from "./promises";
 
