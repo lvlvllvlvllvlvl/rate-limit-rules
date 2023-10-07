@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { sleep } from "../src/helpers";
 import { RateLimiter } from "../src/rate-limiters/custom";
-import "./promises";
-import { mockPromise } from "./promises";
+import { isUnresolved, mockPromise, unresolved } from "./promises";
 
 describe("rate-limiter", () => {
   it("waits for head result before sending requests", async () => {
@@ -15,13 +14,13 @@ describe("rate-limiter", () => {
       () => ""
     );
 
-    const results = [request("url1"), request("url2"), request("url3")];
+    const results = Promise.all([request("url1"), request("url2"), request("url3")]);
 
-    await expect(results).toBeUnresolved();
+    expect(await isUnresolved(results)).toBe(unresolved);
 
     resolve("response");
 
-    await expect(Promise.all(results)).resolves.toBeTruthy();
+    await expect(results).resolves.toBeTruthy();
   });
 
   it("waits for the time specified in the policy", async () => {
@@ -97,12 +96,12 @@ describe("rate-limiter", () => {
       () => ""
     );
 
-    const results = [request("url1"), request("url2"), request("url3")];
+    const results = Promise.all([request("url1"), request("url2"), request("url3")]);
 
-    await expect(results).toBeUnresolved();
+    expect(await isUnresolved(results)).toBe(unresolved);
 
     reject("error");
 
-    await expect(Promise.all(results)).resolves.toEqual(["url1", "url2", "url3"]);
+    await expect(results).resolves.toEqual(["url1", "url2", "url3"]);
   });
 });
