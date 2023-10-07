@@ -13,8 +13,12 @@ export class AxiosRateLimiter extends AbstractRateLimiter<[InternalAxiosRequestC
 
   protected makeRequest = (config: InternalAxiosRequestConfig) => this.adapter(config);
 
-  protected head = (fn: (config: InternalAxiosRequestConfig) => AxiosPromise, config: InternalAxiosRequestConfig) =>
-    fn({ ...config, method: "HEAD", data: undefined });
+  protected headRequest = (
+    fn: (config: InternalAxiosRequestConfig) => AxiosPromise,
+    config: InternalAxiosRequestConfig
+  ) => fn({ ...config, method: "HEAD" });
 
-  protected policyExtractor = ({ headers }: Awaited<AxiosPromise>) => getPolicy((h) => headers[h]);
+  protected extractPolicy = ({ headers }: Awaited<AxiosPromise>) => getPolicy((h) => headers[h]);
+
+  protected getPath = (config: InternalAxiosRequestConfig) => (config.url ? new URL(config.url).pathname : "");
 }

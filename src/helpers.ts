@@ -1,10 +1,10 @@
 import { Limit, Limits, State, States } from "./rate-limiter.js";
 
-export async function sleep(seconds?: number): Promise<void> {
-  if (seconds) {
-    return new Promise((resolve) => setTimeout(resolve, seconds * 1000));
-  } else {
+export async function sleep(seconds: number = 0): Promise<void> {
+  if (!seconds && typeof setImmediate === "function") {
     return new Promise(setImmediate);
+  } else {
+    return new Promise((resolve) => setTimeout(resolve, seconds * 1000));
   }
 }
 

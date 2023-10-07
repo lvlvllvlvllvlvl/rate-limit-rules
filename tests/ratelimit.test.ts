@@ -9,8 +9,9 @@ describe("rate-limiter", () => {
 
     const { request } = new RateLimiter(
       (url: string) => url,
+      () => promise,
       () => ({ name: "policy", limits: {}, state: {} }),
-      () => promise
+      () => ""
     );
 
     const results = [request("url1"), request("url2"), request("url3")];
@@ -28,8 +29,9 @@ describe("rate-limiter", () => {
 
     const { request } = new RateLimiter(
       req,
+      () => undefined,
       () => ({ name: "policy", limits: { single: [{ count: 1, seconds: 0.1, retry: 5 }] }, state: {} }),
-      () => undefined
+      () => ""
     );
 
     const results = [request(), request(), request(), request()];
@@ -54,8 +56,9 @@ describe("rate-limiter", () => {
 
     const { request } = new RateLimiter(
       req,
+      () => undefined,
       () => ({ name: "policy", limits: { single: [{ count: 1, seconds: 0.1, retry: 5 }] }, state: {} }),
-      () => undefined
+      () => ""
     );
 
     const requests = [request(), request(), request(), request()];
@@ -69,24 +72,11 @@ describe("rate-limiter", () => {
   it("handles error in policy extractor", async () => {
     const { request } = new RateLimiter(
       () => "result",
+      () => undefined,
       () => {
         throw "error";
       },
-      () => undefined
-    );
-
-    const requests = [request(), request(), request(), request()];
-
-    for (const result of requests) {
-      await expect(result).rejects.toBe("error");
-    }
-  });
-
-  it("handles rejection in policy extractor", async () => {
-    const { request } = new RateLimiter(
-      () => "result",
-      () => Promise.reject("error"),
-      () => undefined
+      () => ""
     );
 
     const requests = [request(), request(), request(), request()];
@@ -101,8 +91,9 @@ describe("rate-limiter", () => {
 
     const { request } = new RateLimiter(
       Promise.resolve,
+      () => promise,
       () => ({ name: "policy", limits: {}, state: {} }),
-      () => promise
+      () => ""
     );
 
     const results = [request("url1"), request("url2"), request("url3")];

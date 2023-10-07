@@ -53,42 +53,42 @@ type InternalState<T extends any[], R> = {
 
 export interface RateLimiterConfig {
   /**
-   * when the hit count of any state value equals the maximum hit count of the corresponding limit,
+   * When the hit count of any state value equals the maximum hit count of the corresponding limit,
    * wait until this many milliseconds after the state was last updated before trying again
    *
    * Default: 1000
    */
   waitOnStateMs: number;
   /**
-   * if defined, if a policy would cause a known wait longer than this value,
+   * If defined, if a policy would cause a known wait longer than this value,
    * an exception will be thrown instead
+   *
    */
   maxWaitMs?: number;
   /**
    * Minimum time between active requests
    *
-   * Default: 100
+   * Default: 0
    */
   requestDelayMs: number;
   /**
-   * maximum number of active requests per policy
+   * Maximum number of active requests per policy.
+   * Setting this to any number higher than 1 can result in exceeding the rate limit policy,
+   * as GGG sometimes reduce the limit while requests are in progress.
    *
-   * Default: 0 (unlimited)
+   * Default: 1
    */
   maxActive: number;
   /**
-   * enable logging at various levels
+   * Logging functions for debug or error messages
+   *
+   * Default: { error: console.error }
    */
   logging: {
-    [level in "trace" | "debug" | "log" | "warn" | "error"]?: (...data: any[]) => void;
-  } & { [other: string]: any };
-  /**
-   * rules to use when the policy for a path is unknown,
-   * e.g. the first request to an api when header function is not configured
-   *
-   * Default: 1 request per second
-   */
-  defaultLimits: Limit[];
+    debug?: (...data: any[]) => void;
+    error?: (...data: any[]) => void;
+    [other: string]: any;
+  };
 }
 
 export abstract class AbstractRateLimiter<T extends any[], R> {
@@ -98,14 +98,16 @@ export abstract class AbstractRateLimiter<T extends any[], R> {
       return val || (target[String(name)] = { timestamps: [], active: [], queue: [] });
     },
   });
+
+  private policyByPath = {} as Map<string>;
+
   protected conf: RateLimiterConfig = {
     waitOnStateMs: 1000,
-    requestDelayMs: 100,
-    maxActive: 0,
+    requestDelayMs: 0,
+    maxActive: 1,
     logging: {
       error: console.error,
     },
-    defaultLimits: [{ count: 1, seconds: 1, retry: 0 }],
   };
   private thread = Promise.resolve(null as any);
 
@@ -114,18 +116,24 @@ export abstract class AbstractRateLimiter<T extends any[], R> {
   }
 
   protected abstract makeRequest: (...args: T) => R;
-  protected abstract policyExtractor: (result: Awaited<R>) => Policy | Promise<Policy>;
-  protected abstract head: (fn: (...args: T) => R, ...args: T) => R | Promise<R>;
+  protected abstract headRequest: (fn: (...args: T) => R, ...args: T) => R | Promise<R>;
+  protected abstract extractPolicy: (result: Awaited<R>) => Policy;
+  protected abstract getPath: (...args: T) => string;
 
   public request = async (...args: T): Promise<Awaited<R>> => {
-    const policy = await this.policyExtractor(
-      await (this.thread = this.thread.catch().then(() => this.head(this.makeRequest, ...args)))
-    );
+    this.thread = this.thread.catch().then(() => this.headRequest(this.makeRequest, ...args));
+    const policy: Policy = await this.thread
+      .then(this.extractPolicy)
+      .catch(() => this.defaultPolicy(this.getPath(...args)));
 
     return await new Promise<R>((resolve, reject) => {
       this.state[policy.name].queue.push({ args, resolve, reject });
       this.followPolicy(policy);
     });
+  };
+
+  private defaultPolicy = (path: string) => {
+    return { name: "path:" + path, limits: { default: [{ count: 1, seconds: 0, retry: 0 }] }, state: {} };
   };
 
   private followPolicy = (policy: Policy) => {
@@ -160,8 +168,8 @@ export abstract class AbstractRateLimiter<T extends any[], R> {
           state.timeoutID = setTimeout(() => {
             state.timeoutID = null;
             if (state.queue.length) {
-              this.thread = this.thread.catch().then(() => this.head(this.makeRequest, ...state.queue[0].args));
-              this.thread.then(this.policyExtractor).then(this.followPolicy);
+              this.thread = this.thread.catch().then(() => this.headRequest(this.makeRequest, ...state.queue[0].args));
+              this.thread.then(this.extractPolicy).catch().then(this.followPolicy);
             }
           }, wait);
         } else {
@@ -186,12 +194,18 @@ export abstract class AbstractRateLimiter<T extends any[], R> {
       const { args, resolve, reject } = next;
       const started = performance.now();
       const request = Promise.resolve(this.makeRequest(...args))
-        .then((result: any) => {
+        .then(async (r) => {
+          const result = await r;
           state.active = state.active.filter((v) => v.request !== request);
           state.timestamps.push({ started, ended: performance.now() });
           this.conf.logging.debug?.(policy.name, "request complete with args:", ...args);
           resolve(result);
-          return Promise.resolve(this.policyExtractor(result));
+          const extracted = this.extractPolicy(await result);
+          if (policy.name.startsWith("path:")) {
+            this.state[extracted.name].queue.push(...state.queue);
+            state.queue = [];
+          }
+          return extracted;
         })
         .catch((reason) => {
           state.active = state.active.filter((v) => v.request !== request);
