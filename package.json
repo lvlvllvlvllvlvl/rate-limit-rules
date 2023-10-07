@@ -2,7 +2,11 @@
   "name": "rate-limit-rules",
   "version": "1.0.0",
   "description": "Request rate limiter following Grinding Gear Games X-Rate-Limit-Rules specification",
-  "main": "index.js",
+  "main": "lib/index.js",
+  "files": [
+    "lib"
+  ],
+  "type": "module",
   "scripts": {
     "build": "tsc",
     "test": "jest"

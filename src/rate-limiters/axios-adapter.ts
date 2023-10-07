@@ -1,6 +1,6 @@
 import axios, { AxiosAdapter, AxiosPromise, AxiosRequestConfig, InternalAxiosRequestConfig } from "axios";
-import { AbstractRateLimiter, RateLimiterConfig } from "../index";
-import { getPolicy } from "../helpers";
+import { AbstractRateLimiter, RateLimiterConfig } from "../rate-limiter.js";
+import { getPolicy } from "../helpers.js";
 
 export class AxiosRateLimiter extends AbstractRateLimiter<[InternalAxiosRequestConfig], AxiosPromise> {
   private adapter: AxiosAdapter;

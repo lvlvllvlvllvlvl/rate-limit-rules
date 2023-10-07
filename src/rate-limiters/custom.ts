@@ -1,4 +1,4 @@
-import { Policy, AbstractRateLimiter, RateLimiterConfig } from "../index";
+import { Policy, AbstractRateLimiter, RateLimiterConfig } from "../rate-limiter.js";
 
 export class RateLimiter<T extends any[], R> extends AbstractRateLimiter<T, R> {
   constructor(

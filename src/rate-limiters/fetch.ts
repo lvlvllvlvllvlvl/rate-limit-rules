@@ -1,5 +1,5 @@
-import { AbstractRateLimiter, RateLimiterConfig } from "../index";
-import { getPolicy } from "../helpers";
+import { AbstractRateLimiter, RateLimiterConfig } from "../rate-limiter.js";
+import { getPolicy } from "../helpers.js";
 
 type Fetch = typeof fetch;
 type Args = Parameters<Fetch>;

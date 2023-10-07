@@ -1,4 +1,4 @@
-import { Limit, Limits, State, States } from "./index";
+import { Limit, Limits, State, States } from "./rate-limiter.js";
 
 export async function sleep(seconds?: number): Promise<void> {
   if (seconds) {
