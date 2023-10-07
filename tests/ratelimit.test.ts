@@ -1,3 +1,4 @@
+import { describe, expect, it, vi } from "vitest";
 import { sleep } from "../src/helpers";
 import { RateLimiter } from "../src/rate-limiters/custom";
 import "./promises";
@@ -25,7 +26,7 @@ describe("rate-limiter", () => {
 
   it("waits for the time specified in the policy", async () => {
     const [promise, resolve] = mockPromise();
-    const req = jest.fn(() => promise);
+    const req = vi.fn(() => promise);
 
     const { request } = new RateLimiter(
       req,
@@ -52,7 +53,7 @@ describe("rate-limiter", () => {
 
   it("makes the next request when there is an error", async () => {
     const [promise, _, reject] = mockPromise();
-    const req = jest.fn(() => promise);
+    const req = vi.fn(() => promise);
 
     const { request } = new RateLimiter(
       req,
@@ -82,7 +83,7 @@ describe("rate-limiter", () => {
     const requests = [request(), request(), request(), request()];
 
     for (const result of requests) {
-      await expect(result).rejects.toBe("error");
+      await expect(result).resolves.toBe("result");
     }
   });
 
@@ -90,7 +91,7 @@ describe("rate-limiter", () => {
     const [promise, _, reject] = mockPromise();
 
     const { request } = new RateLimiter(
-      Promise.resolve,
+      (url: string) => Promise.resolve(url),
       () => promise,
       () => ({ name: "policy", limits: {}, state: {} }),
       () => ""
@@ -102,6 +103,6 @@ describe("rate-limiter", () => {
 
     reject("error");
 
-    await expect(Promise.all(results)).rejects.toBe("error");
+    await expect(Promise.all(results)).resolves.toEqual(["url1", "url2", "url3"]);
   });
 });

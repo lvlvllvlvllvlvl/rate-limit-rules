@@ -1,3 +1,5 @@
+import { expect } from "vitest";
+
 export function mockPromise<TResult = any>() {
   let resolve: (args?: TResult) => void, reject: (reason?: any) => void;
   const promise = new Promise<TResult>((r, e) => ((resolve = r as any), (reject = e)));
@@ -29,20 +31,3 @@ expect.extend({
     };
   },
 });
-
-declare global {
-  namespace jest {
-    interface Matchers<R, T> {
-      toBeResolved: T extends Promise<any>
-        ? () => CustomMatcherResult
-        : T extends Promise<any>[]
-        ? () => CustomMatcherResult
-        : never;
-      toBeUnresolved: T extends Promise<any>
-        ? () => CustomMatcherResult
-        : T extends Promise<any>[]
-        ? () => CustomMatcherResult
-        : never;
-    }
-  }
-}
