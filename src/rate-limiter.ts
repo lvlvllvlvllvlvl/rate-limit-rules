@@ -42,7 +42,7 @@ export interface Policy {
 
 type InternalState<T extends any[], R> = {
   timeoutID?: any;
-  timestamps: { started: number; ended: number }[];
+  completed: { started: number; ended: number; policy: Policy; extracted?: Policy }[];
   active: { started: number; request: Promise<Policy> }[];
   queue: {
     args: T;
@@ -85,7 +85,7 @@ export abstract class AbstractRateLimiter<T extends any[], R> {
   private state = new Proxy({} as { [policy: string]: InternalState<T, R> }, {
     get: (target, name): InternalState<T, R> => {
       const val = target[String(name)];
-      return val || (target[String(name)] = { timestamps: [], active: [], queue: [] });
+      return val || (target[String(name)] = { completed: [], active: [], queue: [] });
     },
   });
 
@@ -115,9 +115,13 @@ export abstract class AbstractRateLimiter<T extends any[], R> {
     });
   };
 
-  private defaultPolicy = (path: string) => {
-    return { name: "path:" + path, limits: { default: [{ count: 1, seconds: 0, retry: 0 }] }, state: {} };
-  };
+  private policyByPath = {} as Record<string, Policy>;
+  private defaultPolicy = (path: string) =>
+    this.policyByPath[path] || {
+      name: "path:" + path,
+      limits: { default: [{ count: 1, seconds: 0, retry: 0 }] },
+      state: {},
+    };
 
   private followPolicy = (policy: Policy) => {
     const state = this.state[policy.name];
@@ -128,7 +132,7 @@ export abstract class AbstractRateLimiter<T extends any[], R> {
           policy.name,
           policy.limits,
           policy.state,
-          state.timestamps,
+          state.completed,
           state.active.length,
           "active",
           state.queue.length,
@@ -181,20 +185,22 @@ export abstract class AbstractRateLimiter<T extends any[], R> {
       const request = Promise.resolve(this.makeRequest(...args))
         .then(async (r) => {
           const result = await r;
+          const ended = performance.now();
           state.active = state.active.filter((v) => v.request !== request);
-          state.timestamps.push({ started, ended: performance.now() });
           this.debug(policy.name, "request complete with args:", ...args);
-          resolve(result);
-          const extracted = this.extractPolicy(await result);
+          const extracted = this.extractPolicy(result);
+          state.completed.push({ started, ended, policy, extracted });
+          this.policyByPath[this.getPath(...args)] = extracted;
           if (policy.name.startsWith("path:")) {
             this.state[extracted.name].queue.push(...state.queue);
             state.queue = [];
           }
+          resolve(result);
           return extracted;
         })
         .catch((reason) => {
           state.active = state.active.filter((v) => v.request !== request);
-          state.timestamps.push({ started, ended: performance.now() });
+          state.completed.push({ started, ended: performance.now(), policy });
           this.followPolicy(policy);
           this.debug(policy.name, "request failed", reason);
           reject(reason);
@@ -213,8 +219,12 @@ export abstract class AbstractRateLimiter<T extends any[], R> {
     const state = this.state[policy.name];
     for (const [rule, limits] of Object.entries(policy.limits)) {
       const ruleStates = policy.state[rule] || [];
-      for (let i = 0; i < limits.length; i++) {
-        const nextWait = this.checkLimit(state, limits[i], ruleStates[i]);
+      for (const limit of limits) {
+        const nextWait = this.checkLimit(
+          state,
+          limit,
+          ruleStates.find(({ seconds }) => seconds === limit.seconds)
+        );
         if (nextWait instanceof Promise) {
           return nextWait;
         }
@@ -230,7 +240,7 @@ export abstract class AbstractRateLimiter<T extends any[], R> {
     return wait > 0 ? wait : undefined;
   };
 
-  private checkLimit = ({ timestamps, active }: InternalState<T, R>, limit: Limit, state?: State) => {
+  private checkLimit = ({ completed: timestamps, active }: InternalState<T, R>, limit: Limit, state?: State) => {
     if ((this.conf.maxActive > 0 && active.length >= this.conf.maxActive) || active.length >= limit.count) {
       return Promise.race(active.map((a) => a.request));
     }
@@ -243,11 +253,11 @@ export abstract class AbstractRateLimiter<T extends any[], R> {
         waitUntil = timestamps[idx].ended + limit.seconds * 1000;
       }
     }
-    if (state && state.timestamp + state.seconds * 1000 > performance.now()) {
+    if (state && performance.now() - state.timestamp < state.seconds * 1000) {
       if (state.retry) {
         waitUntil = Math.max(waitUntil, state.timestamp + state.retry * 1000);
       }
-      if (state.count >= limit.count) {
+      if (state.count >= limit.count && waitUntil < performance.now()) {
         waitUntil = Math.max(waitUntil, state.timestamp + limit.seconds * 1000);
       }
     }
