@@ -51,26 +51,18 @@ type InternalState<T extends any[], R> = {
   }[];
 };
 
-export interface RateLimiterConfig {
-  /**
-   * When the hit count of any state value equals the maximum hit count of the corresponding limit,
-   * wait until this many milliseconds after the state was last updated before trying again
-   *
-   * Default: 1000
-   */
-  waitOnStateMs: number;
+const defaultConfig = {
   /**
    * If defined, if a policy would cause a known wait longer than this value,
    * an exception will be thrown instead
-   *
    */
-  maxWaitMs?: number;
+  maxWaitMs: undefined as number | undefined,
   /**
    * Minimum time between active requests
    *
    * Default: 0
    */
-  requestDelayMs: number;
+  requestDelayMs: 0,
   /**
    * Maximum number of active requests per policy.
    * Setting this to any number higher than 1 can result in exceeding the rate limit policy,
@@ -78,18 +70,16 @@ export interface RateLimiterConfig {
    *
    * Default: 1
    */
-  maxActive: number;
+  maxActive: 1,
   /**
-   * Logging functions for debug or error messages
+   * Logging function for debug messages
    *
-   * Default: { error: console.error }
+   * Default: none
    */
-  logging: {
-    debug?: (...data: any[]) => void;
-    error?: (...data: any[]) => void;
-    [other: string]: any;
-  };
-}
+  log: undefined as typeof console.log | undefined,
+};
+
+export type RateLimiterConfig = typeof defaultConfig;
 
 export abstract class AbstractRateLimiter<T extends any[], R> {
   private state = new Proxy({} as { [policy: string]: InternalState<T, R> }, {
@@ -99,26 +89,19 @@ export abstract class AbstractRateLimiter<T extends any[], R> {
     },
   });
 
-  private policyByPath = {} as Map<string>;
-
-  protected conf: RateLimiterConfig = {
-    waitOnStateMs: 1000,
-    requestDelayMs: 0,
-    maxActive: 1,
-    logging: {
-      error: console.error,
-    },
-  };
+  protected conf: RateLimiterConfig;
   private thread = Promise.resolve(null as any);
 
   constructor(conf?: Partial<RateLimiterConfig>) {
-    conf && Object.assign(this.conf, conf);
+    this.conf = conf ? { ...defaultConfig, ...conf } : { ...defaultConfig };
   }
 
   protected abstract makeRequest: (...args: T) => R;
   protected abstract headRequest: (fn: (...args: T) => R, ...args: T) => R | Promise<R>;
   protected abstract extractPolicy: (result: Awaited<R>) => Policy;
   protected abstract getPath: (...args: T) => string;
+
+  protected debug = (...args: any[]) => this.conf.log?.(...args);
 
   public request = async (...args: T): Promise<Awaited<R>> => {
     this.thread = this.thread.catch().then(() => this.headRequest(this.makeRequest, ...args));
@@ -140,9 +123,11 @@ export abstract class AbstractRateLimiter<T extends any[], R> {
     const state = this.state[policy.name];
     while (!state.timeoutID && state.queue.length) {
       try {
-        this.conf.logging.debug?.(
+        this.debug(
           "follow policy",
           policy.name,
+          policy.limits,
+          policy.state,
           state.timestamps,
           state.active.length,
           "active",
@@ -150,9 +135,9 @@ export abstract class AbstractRateLimiter<T extends any[], R> {
           "queued"
         );
         const wait = this.checkLimits(policy);
-        this.conf.logging.debug?.("wait", policy.name, wait);
+        this.debug("wait", policy.name, wait);
         if (wait instanceof Promise) {
-          this.conf.logging.debug?.("waiting on active request", policy.name);
+          this.debug("waiting on active request", policy.name);
           wait.then(async (result) => {
             await sleep();
             this.followPolicy(result ? await result : policy);
@@ -177,11 +162,11 @@ export abstract class AbstractRateLimiter<T extends any[], R> {
           const active = state.active.length;
           this.nextRequest(policy);
           if (state.active.length !== active + 1) {
-            this.conf.logging.debug?.(active, state.active.length, this.state[policy.name].active);
+            this.debug(active, state.active.length, this.state[policy.name].active);
           }
         }
       } catch (e) {
-        this.conf.logging.warn?.(e);
+        this.debug(e);
       }
     }
   };
@@ -198,7 +183,7 @@ export abstract class AbstractRateLimiter<T extends any[], R> {
           const result = await r;
           state.active = state.active.filter((v) => v.request !== request);
           state.timestamps.push({ started, ended: performance.now() });
-          this.conf.logging.debug?.(policy.name, "request complete with args:", ...args);
+          this.debug(policy.name, "request complete with args:", ...args);
           resolve(result);
           const extracted = this.extractPolicy(await result);
           if (policy.name.startsWith("path:")) {
@@ -211,15 +196,15 @@ export abstract class AbstractRateLimiter<T extends any[], R> {
           state.active = state.active.filter((v) => v.request !== request);
           state.timestamps.push({ started, ended: performance.now() });
           this.followPolicy(policy);
-          this.conf.logging.debug?.(policy.name, "request failed", reason);
+          this.debug(policy.name, "request failed", reason);
           reject(reason);
           return policy;
         });
 
-      this.conf.logging.debug?.(policy.name, "queued request with args:", ...args);
+      this.debug(policy.name, "queued request with args:", ...args);
       state.active.push({ request, started });
     } else {
-      this.conf.logging.debug?.("No requests in queue");
+      this.debug("No requests in queue");
     }
   };
 
@@ -263,13 +248,13 @@ export abstract class AbstractRateLimiter<T extends any[], R> {
         waitUntil = Math.max(waitUntil, state.timestamp + state.retry * 1000);
       }
       if (state.count >= limit.count) {
-        waitUntil = Math.max(waitUntil, state.timestamp + this.conf.waitOnStateMs);
+        waitUntil = Math.max(waitUntil, state.timestamp + limit.seconds * 1000);
       }
     }
     if (waitUntil > performance.now()) {
-      this.conf.logging.debug?.("wait", waitUntil, performance.now(), limit, state);
+      this.debug("wait", waitUntil, performance.now(), limit, state);
     } else {
-      this.conf.logging.debug?.("no wait", limit, state);
+      this.debug("no wait", limit, state);
     }
     return waitUntil;
   };
