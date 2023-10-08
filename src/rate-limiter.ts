@@ -158,7 +158,10 @@ export abstract class AbstractRateLimiter<T extends any[], R> {
             state.timeoutID = null;
             if (state.queue.length) {
               this.thread = this.thread.catch().then(() => this.headRequest(this.makeRequest, ...state.queue[0].args));
-              this.thread.then(this.extractPolicy).catch().then(this.followPolicy);
+              this.thread
+                .then(this.extractPolicy)
+                .catch(() => policy)
+                .then(this.followPolicy);
             }
           }, wait);
         } else {
@@ -188,15 +191,20 @@ export abstract class AbstractRateLimiter<T extends any[], R> {
           const ended = performance.now();
           state.active = state.active.filter((v) => v.request !== request);
           this.debug(policy.name, "request complete with args:", ...args);
-          const extracted = this.extractPolicy(result);
+          let extracted: Policy | undefined = undefined;
+          try {
+            extracted = this.extractPolicy(result);
+            this.policyByPath[this.getPath(...args)] = extracted;
+          } catch (e) {
+            this.debug(result, e);
+          }
           state.completed.push({ started, ended, policy, extracted });
-          this.policyByPath[this.getPath(...args)] = extracted;
-          if (policy.name.startsWith("path:")) {
+          if (extracted && policy.name.startsWith("path:")) {
             this.state[extracted.name].queue.push(...state.queue);
             state.queue = [];
           }
           resolve(result);
-          return extracted;
+          return extracted || this.defaultPolicy(this.getPath(...args));
         })
         .catch((reason) => {
           state.active = state.active.filter((v) => v.request !== request);
