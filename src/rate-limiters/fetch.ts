@@ -12,8 +12,15 @@ export class FetchRateLimiter extends AbstractRateLimiter<Args, Result> {
 
   protected makeRequest = fetch;
 
-  protected headRequest = (fn: typeof fetch, ...[req, init = {}]: Parameters<typeof fetch>) =>
-    fn(req, { ...init, method: "HEAD", body: undefined });
+  protected headRequest = (fn: typeof fetch, ...[req, init = {}]: Parameters<typeof fetch>) => {
+    let url: string | URL;
+    if (typeof req !== "string" && "url" in req) {
+      url = req.url;
+    } else {
+      url = req;
+    }
+    return fn(url, { method: "HEAD" });
+  };
 
   protected extractPolicy = ({ headers }: Response) => getPolicy(headers.get.bind(headers));
 
