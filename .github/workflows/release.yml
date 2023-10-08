@@ -17,9 +17,9 @@ jobs:
           git config user.name "GitHub Release Action"
           git config user.email "119665497+lvlvllvlvllvlvl@users.noreply.github.com"
           npm version from-git
-          git push origin ${{ github.ref_name }}
           npm ci
           npm run build
           npm publish
+          git push origin ${{ github.ref_name }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
