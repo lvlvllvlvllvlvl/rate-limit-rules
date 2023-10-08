@@ -30,7 +30,9 @@ export function getState(text?: string | null): State[] {
 const trim = (s: string) => s.trim();
 
 export function getPolicy(getHeader: (name: string) => string | null | undefined) {
-  const retry = getHeader("Retry-After");
+  const name = getHeader("X-Rate-Limit-Policy");
+  if (!name) throw "no policy";
+  const retryAfter = parseInt(getHeader("Retry-After")!) || 0;
   const rules = getHeader("X-Rate-Limit-Rules")?.split(",")?.map(trim) || [];
   const limits: Limits = {};
   const state: States = {};
@@ -39,10 +41,5 @@ export function getPolicy(getHeader: (name: string) => string | null | undefined
     state[rule] = getState(getHeader(`X-Rate-Limit-${rule}-State`));
   }
 
-  return {
-    name: getHeader("X-Rate-Limit-Policy") || "",
-    limits,
-    state,
-    retryAfter: (retry && parseInt(retry)) || 0,
-  };
+  return { name, limits, state, retryAfter };
 }
