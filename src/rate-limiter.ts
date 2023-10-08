@@ -237,7 +237,7 @@ export abstract class AbstractRateLimiter<T extends any[], R> {
       }
     }
     const lastReq = state.active[state.active.length - 1];
-    if (lastReq && waitUntil < lastReq.started + this.conf.requestDelayMs) {
+    if (lastReq && this.conf.requestDelayMs && waitUntil < lastReq.started + this.conf.requestDelayMs) {
       const wait = lastReq.started + this.conf.requestDelayMs - performance.now();
       return Promise.race([lastReq.request, sleep(wait / 1000)]);
     }
